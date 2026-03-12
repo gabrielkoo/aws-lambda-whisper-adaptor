@@ -1,0 +1,80 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options: [production, test]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          ECR_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          GHCR_IMAGE: ghcr.io/${{ github.repository }}:latest
+        run: |
+          docker build -t $ECR_IMAGE -t $GHCR_IMAGE .
+          docker push $ECR_IMAGE
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push $GHCR_IMAGE
+
+      - name: Update Lambda
+        env:
+          ECR_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
+            --image-uri $ECR_IMAGE \
+            --region ${{ vars.AWS_REGION }}
+          aws lambda wait function-updated \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
+            --region ${{ vars.AWS_REGION }}
+          aws lambda update-function-configuration \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
+            --memory-size 10240 \
+            --timeout 900 \
+            --region ${{ vars.AWS_REGION }}
+
+      - name: Update Lambda (int8, optional)
+        if: vars.LAMBDA_FUNCTION_NAME_INT8 != ''
+        env:
+          ECR_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME_INT8 }} \
+            --image-uri $ECR_IMAGE \
+            --region ${{ vars.AWS_REGION }}
+          aws lambda wait function-updated \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME_INT8 }} \
+            --region ${{ vars.AWS_REGION }}
+          aws lambda update-function-configuration \
+            --function-name ${{ vars.LAMBDA_FUNCTION_NAME_INT8 }} \
+            --memory-size 10240 \
+            --timeout 900 \
+            --region ${{ vars.AWS_REGION }}

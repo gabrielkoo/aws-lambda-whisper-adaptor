@@ -1,0 +1,83 @@
+name: Sync Model to S3
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options: [production, test]
+      hf_model_repo:
+        description: 'HuggingFace model repo'
+        required: true
+        default: 'openai/whisper-large-v3-turbo'
+      quantization:
+        description: 'Quantization (int8, float16). Use "none" if model is already in CTranslate2 format.'
+        required: false
+        default: 'int8'
+        type: choice
+        options: [int8, float16, none]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Convert and sync to S3
+        run: |
+          pip install huggingface_hub ctranslate2 transformers -q
+          pip install torch --index-url https://download.pytorch.org/whl/cpu -q
+          MODEL_SLUG=$(echo "${{ inputs.hf_model_repo }}" | sed 's|/|--|g')
+
+          if [ "${{ inputs.quantization }}" != "none" ]; then
+            echo "Converting ${{ inputs.hf_model_repo }} → CTranslate2 (${{ inputs.quantization }})..."
+            ct2-transformers-converter \
+              --model "${{ inputs.hf_model_repo }}" \
+              --output_dir /tmp/model \
+              --quantization "${{ inputs.quantization }}" \
+              --force
+            # Fix config.json: ct2-transformers-converter omits num_mel_bins
+            python -c "
+          import json
+          from transformers import AutoFeatureExtractor
+          fe = AutoFeatureExtractor.from_pretrained('${{ inputs.hf_model_repo }}')
+          cfg_path = '/tmp/model/config.json'
+          with open(cfg_path) as f: cfg = json.load(f)
+          cfg['num_mel_bins'] = fe.feature_size
+          with open(cfg_path, 'w') as f: json.dump(cfg, f, indent=2)
+          print(f'num_mel_bins set to {fe.feature_size}')
+            "
+            python -c "
+          from transformers import AutoTokenizer
+          tok = AutoTokenizer.from_pretrained('${{ inputs.hf_model_repo }}')
+          tok.save_pretrained('/tmp/model')
+          print('Tokenizer saved')
+            "
+          else
+            echo "Downloading pre-converted CTranslate2 model ${{ inputs.hf_model_repo }}..."
+            python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+            repo_id='${{ inputs.hf_model_repo }}',
+            local_dir='/tmp/model',
+            ignore_patterns=['*.msgpack','*.h5','flax_model*','tf_model*','rust_model*','*.ot']
+          )
+          print('Download complete')
+            "
+          fi
+
+          aws s3 sync /tmp/model s3://${{ vars.MODEL_S3_BUCKET }}/models/$MODEL_SLUG/
+          echo "✅ Synced to s3://${{ vars.MODEL_S3_BUCKET }}/models/$MODEL_SLUG/"

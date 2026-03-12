@@ -34,13 +34,19 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push
+      - name: Build and push to ECR
         env:
           ECR_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
           GHCR_IMAGE: ghcr.io/${{ github.repository }}:latest
         run: |
           docker build -t $ECR_IMAGE -t $GHCR_IMAGE .
           docker push $ECR_IMAGE
+
+      - name: Push to GHCR
+        continue-on-error: true
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository }}:latest
+        run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push $GHCR_IMAGE
 

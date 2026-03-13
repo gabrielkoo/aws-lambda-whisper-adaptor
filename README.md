@@ -7,7 +7,7 @@ Self-hosted speech-to-text on AWS Lambda using [faster-whisper](https://github.c
 - 🎙️ **Deepgram-compatible** `/v1/listen` endpoint
 - 🤖 **OpenAI-compatible** `/v1/audio/transcriptions` endpoint
 - 📋 **Model management** — list and delete EFS models via API
-- 📦 **EFS-backed model** — fast cold starts (~29s with int8)
+- 📦 **EFS-backed model** — fast cold starts (~20-30s with int8)
 - 💰 **Pay-per-use** — scales to zero, no idle costs
 - 🔄 **Self-bootstrapping** — Lambda downloads model from S3 to EFS on first cold start
 - 🔧 **Any HuggingFace model** — configure via `HF_MODEL_REPO` env var
@@ -338,7 +338,7 @@ Use the `sync-model` workflow to download and convert models.
 
 | `HF_MODEL_REPO` | Source | Size (int8) | EFS Cold Start | Warm (2.5s audio) | sync-model `quantization` | Notes |
 |-----------------|--------|-------------|----------------|-------------------|---------------------------|-------|
-| `openai/whisper-large-v3-turbo` | ✅ Official OpenAI | ~780MB | ~60s | **~10s** ✅ | `int8` | **Recommended** |
+| `openai/whisper-large-v3-turbo` | ✅ Official OpenAI | ~780MB | ~22s | **~10s** ✅ | `int8` | **Recommended** |
 | `openai/whisper-large-v3` | ✅ Official OpenAI | ~1.6GB | ~82s | ~15s | `int8` | Higher accuracy |
 | `Systran/faster-whisper-large-v3` | ✅ Official SYSTRAN | ~1.6GB | ~52s | ~13s | `none` | Pre-converted CTranslate2; 6GB memory |
 | `Systran/faster-distil-whisper-large-v3` | ✅ Official SYSTRAN | ~700MB | ~25s | ~10s | `none` | Pre-converted CTranslate2; good accuracy/speed balance |

@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-lambda-whisper-adaptor — Deepgram & OpenAI compatible speech-to-text on AWS Lambda
+
+Parameters:
+  ImageUri:
+    Type: String
+    Default: ghcr.io/gabrielkoo/aws-lambda-whisper-adaptor:latest
+  HfModelRepo:
+    Type: String
+    Default: openai/whisper-large-v3-turbo
+  ModelS3Bucket:
+    Type: String
+  ApiSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+  SubnetIds:
+    Type: CommaDelimitedList
+  SecurityGroupIds:
+    Type: CommaDelimitedList
+  EfsAccessPointArn:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+
+Resources:
+  WhisperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageUri: !Ref ImageUri
+      MemorySize: 10240
+      Timeout: 900
+      Role: !Ref LambdaRoleArn
+      Environment:
+        Variables:
+          HF_MODEL_REPO: !Ref HfModelRepo
+          MODEL_S3_BUCKET: !Ref ModelS3Bucket
+          API_SECRET: !Ref ApiSecret
+      VpcConfig:
+        SubnetIds: !Ref SubnetIds
+        SecurityGroupIds: !Ref SecurityGroupIds
+      FileSystemConfigs:
+        - Arn: !Ref EfsAccessPointArn
+          LocalMountPath: /mnt/whisper-models
+      FunctionUrlConfig:
+        AuthType: NONE
+
+Outputs:
+  WhisperFunctionUrl:
+    Description: Function URL for the Whisper adaptor
+    Value: !GetAtt WhisperFunctionUrl.FunctionUrl
+  WhisperFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt WhisperFunction.Arn
